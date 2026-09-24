@@ -241,7 +241,7 @@ def build_je_rows(journal_no: str, journal_date: str, journal_date_human: str,
 
     def add(account, debit=None, credit=None):
         rows.append({
-            "*JournalNo": journal_no if not rows else "",
+            "*JournalNo": journal_no,
             "*JournalDate": journal_date if not rows else "",
             "Memo": memo if not rows else "",
             "*AccountName": account,
