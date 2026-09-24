@@ -177,7 +177,7 @@ def parse_sheet(text: str) -> dict:
     #   17 over_short
     labels_18 = [
         "gross_cash_fees", "_f1", "gross_reservations", "_f2", "_f3",
-        "net_camping", "net_gst", "firewood_gross", "fw_net", "fw_gst", "_f4",
+        "net_camping", "net_gst", "firewood_gross", "fw_net", "fw_gst", "resv_gst",
         "sani_gross", "sani_net", "sani_gst", "us_dollar", "pos_cad", "_f5",
         "over_short",
     ]
@@ -197,7 +197,7 @@ def parse_sheet(text: str) -> dict:
 
     # keep only the fields build_je_rows() actually needs
     for key in ("net_camping", "net_gst", "sani_gross", "sani_net", "sani_gst",
-                "firewood_gross", "fw_net", "fw_gst"):
+                "firewood_gross", "fw_net", "fw_gst", "gross_reservations", "resv_gst"):
         result[key] = parsed.get(key, Decimal("0.00"))
 
     return result
@@ -368,11 +368,43 @@ def process_one(pdf_path, journal_no, location, output_dir,
                           manual_sani=manual_sani, manual_firewood=manual_firewood)
 
     debits, credits, balanced = check_balance(rows)
+
+    # Some sheets (e.g. when Gross Reservations $$ is active) reuse the
+    # Firewood Gross/Net/GST column positions for Reservation Gross/Net/GST
+    # instead — same 18-column count, different meaning (the true net sits
+    # where "fw_gst" is normally read, and the true GST sits one column
+    # further right, in what's normally a filler slot). There's no
+    # dedicated Reservations GL account, so that revenue belongs in
+    # Camping, not Wood Sales. Only apply this reinterpretation when: the
+    # standard mapping doesn't balance, no manual override is already in
+    # play, Firewood-gross parsed as $0 (so a real Firewood day won't be
+    # touched), and folding resolves the entry to balance to the penny —
+    # otherwise leave it flagged for manual review.
+    reservation_fold_applied = False
+    if (not balanced and manual_sani is None and manual_firewood is None
+            and figures["firewood_gross"] == 0 and figures["gross_reservations"] != 0
+            and (figures["fw_net"] != 0 or figures["fw_gst"] != 0)):
+        alt_figures = dict(figures)
+        alt_figures["net_camping"] = figures["net_camping"] + figures["fw_gst"]
+        alt_figures["net_gst"] = figures["net_gst"] + figures["resv_gst"]
+        alt_figures["fw_net"] = Decimal("0.00")
+        alt_figures["fw_gst"] = Decimal("0.00")
+        alt_rows = build_je_rows(journal_no, jdate_str, jdate_human, location, alt_figures,
+                                  manual_sani=manual_sani, manual_firewood=manual_firewood)
+        alt_debits, alt_credits, alt_balanced = check_balance(alt_rows)
+        if alt_balanced:
+            print("  [i] Firewood Net/GST column positions held Reservation $ instead "
+                  "(no dedicated Reservations account — folded into Camping to balance).")
+            figures, rows = alt_figures, alt_rows
+            debits, credits, balanced = alt_debits, alt_credits, alt_balanced
+            reservation_fold_applied = True
+
     print(f"   Total Deposit: ${figures['total_deposit']}   "
           f"Deposit Required: ${figures['deposit_required']}   "
           f"Difference: ${figures['difference']}")
     print(f"   Debits: ${debits}   Credits: ${credits}   "
-          f"Balanced: {'YES' if balanced else 'NO — CHECK MANUALLY'}")
+          f"Balanced: {'YES' if balanced else 'NO — CHECK MANUALLY'}"
+          f"{'  (reservation columns folded into Camping)' if reservation_fold_applied else ''}")
 
     os.makedirs(output_dir, exist_ok=True)
     out_name = f"{journal_no}_Parks_{jdate.isoformat()}.csv"
