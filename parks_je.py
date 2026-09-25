@@ -263,20 +263,18 @@ def build_je_rows(journal_no: str, journal_date: str, journal_date_human: str,
     # 3. Camping revenue + GST (always present if non-zero)
     if net_camping != 0:
         add(ACCT_CAMPING, credit=net_camping)
-    if net_gst_camping != 0:
-        add(ACCT_GST, credit=net_gst_camping)
+    # All GST (camping + sani + firewood) on one combined line
+    total_gst = net_gst_camping + sani_gst + fw_gst
+    if total_gst != 0:
+        add(ACCT_GST, credit=total_gst)
 
-    # 4. Sani Station (only if non-zero)
-    if sani_net != 0:
-        add(ACCT_SANI, credit=sani_net)
-    if sani_gst != 0:
-        add(ACCT_GST, credit=sani_gst)
-
-    # 5. Firewood (only if non-zero)
+    # 4. Firewood (only if non-zero)
     if fw_net != 0:
         add(ACCT_FIREWOOD, credit=fw_net)
-    if fw_gst != 0:
-        add(ACCT_GST, credit=fw_gst)
+
+    # 5. Sani Station (only if non-zero)
+    if sani_net != 0:
+        add(ACCT_SANI, credit=sani_net)
 
     # 6. If cash is OVER (difference positive), credit Cash Short/Over
     if difference > 0:
